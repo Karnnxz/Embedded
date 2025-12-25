@@ -12,10 +12,10 @@ const char* mqtt_server = "test.mosquitto.org";
 #define BLED 27
 #define RLED 26
 
-#define DARK_DETECT 1500   
-#define LIGHT_RELEASE 2200 
-#define H 3500
-#define L 2500
+#define DARK_DETECT 800   
+#define LIGHT_RELEASE 1300
+#define L 2600
+#define H 3200
 #define OPEN_ANGLE 90
 #define CLOSE_ANGLE 0
 #define MAX_SLOTS 5
@@ -55,6 +55,11 @@ void loop() {
   if (!isManualMode) {
     int v1 = analogRead(LDR1);
     int v2 = analogRead(LDR2);
+
+    Serial.print(v1);
+    Serial.print("    ");
+    Serial.print(v2);
+    
 
     switch (currentState) {
       case IDLE:
@@ -130,34 +135,36 @@ void callback(char* topic, byte* payload, unsigned int length) {
   String msg = "";
   for (int i = 0; i < length; i++) msg += (char)payload[i];
   String strTopic = String(topic);
-  
-  // ตรวจสอบการสลับโหมดจากปุ่ม Toggle
-  if (strTopic == "Group7/mode") {
-    if (msg == "MANUAL") {
-      isManualMode = true;
-      client.publish("Group7/status", "MODE: MANUAL", true);
-      Serial.println("Switched to MANUAL MODE");
-    } else {
-      isManualMode = false;
-      currentState = IDLE; // กลับไปเริ่มระบบออโต้ใหม่
-      client.publish("Group7/status", "MODE: AUTO (Ready)", true);
-      Serial.println("Switched to AUTO MODE");
-    }
-  }
-  
-  // ตรวจสอบคำสั่งเปิด-ปิด
+
   if (strTopic == "Group7/command") {
+    // กรณีที่ 1: กดปุ่มสั่งเปิด (จะเข้าโหมด Manual อัตโนมัติ)
     if (msg == "OPEN") {
+      isManualMode = true;        // หยุดการทำงานของเซนเซอร์ LDR ใน loop()
+      currentState = MANUAL_HOLD; // ล็อกสถานะระบบไม่ให้เปลี่ยนไปมา
       gate.write(OPEN_ANGLE);
       LED(1);
-      if(isManualMode) currentState = MANUAL_HOLD; 
-      client.publish("Group7/status", "Manual Opened", true);
+      client.publish("Group7/status", "MODE: MANUAL (Opened)", true);
+      Serial.println("Manual Command: OPEN. Sensor Paused.");
     } 
+    
+    // กรณีที่ 2: กดปุ่มสั่งปิด (จะเข้าโหมด Manual อัตโนมัติ)
     else if (msg == "CLOSE") {
+      isManualMode = true;
+      currentState = MANUAL_HOLD;
       gate.write(CLOSE_ANGLE);
       LED(0);
-      currentState = IDLE;
-      client.publish("Group7/status", "Ready", true);
+      client.publish("Group7/status", "MODE: MANUAL (Closed)", true);
+      Serial.println("Manual Command: CLOSE. Sensor Paused.");
+    }
+    
+    // กรณีที่ 3: กดปุ่ม Boost เพื่อกลับสู่โหมด Auto
+    else if (msg == "Boost") {
+      isManualMode = false;       // เปิดการทำงานของเซนเซอร์ LDR ให้กลับมาทำงาน
+      currentState = IDLE;        // รีเซ็ตสถานะกลับไปจุดเริ่มต้น
+      gate.write(CLOSE_ANGLE);    // ปิดประตูก่อนเพื่อความปลอดภัย
+      LED(0);
+      client.publish("Group7/status", "MODE: AUTO (Ready)", true);
+      Serial.println("Return to AUTO Mode");
     }
   }
 }
